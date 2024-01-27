@@ -5,22 +5,22 @@ from PhIREGANs import *
 # WIND - LR-MR
 #-------------------------------------------------------------
 
-data_type = 'wind'
-data_path = 'example_data/wind_LR-MR.tfrecord'
-model_path = 'models/wind_lr-mr/trained_gan/gan'
-r = [2, 5]
-mu_sig=[[0.7684, -0.4575], [4.9491, 5.8441]]
+# data_type = 'wind'
+# data_path = 'example_data/wind_LR-MR.tfrecord'
+# model_path = 'models/wind_lr-mr/trained_gan/gan'
+# r = [2, 5]
+# mu_sig=[[0.7684, -0.4575], [4.9491, 5.8441]]
 
 
 # WIND - MR-HR
 #-------------------------------------------------------------
-'''
+
 data_type = 'wind'
 data_path = 'example_data/wind_MR-HR.tfrecord'
 model_path = 'models/wind_mr-hr/trained_gan/gan'
 r = [5]
 mu_sig=[[0.7684, -0.4575], [5.02455, 5.9017]]
-'''
+
 
 # SOLAR - LR-MR
 #-------------------------------------------------------------
