@@ -91,10 +91,15 @@ def pixel_shuffle_layer(x, r, n_split):
 def plot_SR_data(idx, LR, SR, path):
 
     for i in range(LR.shape[0]):
+        print("hi")
         vmin0, vmax0 = np.min(SR[i,:,:,0]), np.max(SR[i,:,:,0])
         vmin1, vmax1 = np.min(SR[i,:,:,1]), np.max(SR[i,:,:,1])
 
-        plt.figure(figsize=(12, 12))
+        # plt.imshow(LR[i, :, :, 0], vmin=vmin0, vmax=vmax0, cmap='viridis', origin='lower')
+        # plt.imsave('/content/drive/MyDrive/PhIRE/IMG/images/ua_a_{0:05d}.png'.format(idx[i]), arr=SR[i,:,:,0], vmin=vmin0, vmax=vmax0, cmap='viridis', format='png')
+        # plt.imsave('/content/drive/MyDrive/PhIRE/IMG/images/va_a_{0:05d}.png'.format(idx[i]), arr=SR[i,:,:,1], vmin=vmin1, vmax=vmax1, cmap='viridis', format='png')
+        
+        plt.figure()
         
         plt.subplot(221)
         plt.imshow(LR[i, :, :, 0], vmin=vmin0, vmax=vmax0, cmap='viridis', origin='lower')
