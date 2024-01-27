@@ -6,14 +6,16 @@ import tensorflow as tf
 from time import strftime, time
 from utils import plot_SR_data
 from sr_network import SR_NETWORK
+from scipy import stats
+
 
 class PhIREGANs:
     # Network training meta-parameters
-    DEFAULT_N_EPOCHS = 10 # Number of epochs of training
+    DEFAULT_N_EPOCHS =1 # Number of epochs of training
     DEFAULT_LEARNING_RATE = 1e-4 # Learning rate for gradient descent (may decrease to 1e-5 after initial training)
     DEFAULT_EPOCH_SHIFT = 0 # If reloading previously trained network, what epoch to start at
-    DEFAULT_SAVE_EVERY = 10 # How frequently (in epochs) to save model weights
-    DEFAULT_PRINT_EVERY = 2 # How frequently (in iterations) to write out performance
+    DEFAULT_SAVE_EVERY = 1 # How frequently (in epochs) to save model weights
+    DEFAULT_PRINT_EVERY = 1 # How frequently (in iterations) to write out performance
 
     def __init__(self, data_type, N_epochs=None, learning_rate=None, epoch_shift=None, save_every=None, print_every=None, mu_sig=None):
 
@@ -58,6 +60,99 @@ class PhIREGANs:
         self.model_name    = '/'.join(['models', self.run_id])
         self.data_out_path = '/'.join(['data_out', self.run_id])
 
+    # def rescale_linear(array, new_min, new_max):
+    #     """Rescale an arrary linearly."""
+    #     minimum, maximum = np.min(array), np.max(array)
+    #     m = (new_max - new_min) / (maximum - minimum)
+    #     b = new_min - m * minimum
+    #     return m * array + b
+
+    # def energy_spectrum(img_path, min, max):
+    #     img = Image.open(img_path).convert('L')
+    #     img.save('greyscale.png')
+    #     image = mpimg.imread("greyscale.png")
+    #     image = rescale_linear(image, min, max)
+
+    #     npix = image.shape[0]
+    #     fourier_image = np.fft.fftn(image)
+    #     fourier_amplitudes = np.abs(fourier_image)**2
+    #     fourier_amplitudes = np.fft.fftshift(fourier_amplitudes)
+
+    #     kfreq = np.fft.fftfreq(npix) * npix
+    #     kfreq2D = np.meshgrid(kfreq, kfreq)
+    #     knrm = np.sqrt(kfreq2D[0]**2 + kfreq2D[1]**2)
+
+    #     knrm = knrm.flatten()
+    #     fourier_amplitudes = fourier_amplitudes.flatten()
+
+
+    #     kbins = np.arange(0.5, npix//2+1, 1.)
+    #     kvals = (kbins[1:] + kbins[:-1])
+    #     Abins, _, _ = stats.binned_statistic(knrm, fourier_amplitudes,
+    #                                         statistic = "mean",
+    #                                         bins = kbins)
+    #     Abins *= np.pi * (kbins[1:]**2 - kbins[:-1]**2)
+
+    #     return kvals, Abins
+
+
+
+    def rescale_linear(self, tensor, min_val, max_val):
+      return (tensor - min_val) / (max_val - min_val) * 255.0
+
+    def energy_spectrum(self, image, min_val, max_val):
+        # Assuming image is a numpy array with shape (1, height, width, channels)
+        image = self.rescale_linear(image, min_val, max_val)
+
+        npix = image.shape[1]
+        # Considering each channel separately
+        kvals_list = []
+        Abins_list = []
+
+        for channel in range(image.shape[-1]):
+            fourier_image = np.fft.fftn(image[0, :, :, channel])
+            fourier_amplitudes = np.abs(fourier_image)**2
+            fourier_amplitudes = np.fft.fftshift(fourier_amplitudes)
+
+            kfreq = np.fft.fftfreq(npix) * npix
+            kfreq2D = np.meshgrid(kfreq, kfreq)
+            knrm = np.sqrt(kfreq2D[0]**2 + kfreq2D[1]**2)
+
+            knrm = knrm.flatten()
+            fourier_amplitudes = fourier_amplitudes.flatten()
+
+            kbins = np.arange(0.5, npix//2+1, 1.)
+            kvals = (kbins[1:] + kbins[:-1])
+            Abins, _, _ = stats.binned_statistic(knrm, fourier_amplitudes,
+                                                statistic="mean",
+                                                bins=kbins)
+            Abins *= np.pi * (kbins[1:]**2 - kbins[:-1]**2)
+
+            kvals_list.append(kvals)
+            Abins_list.append(Abins)
+
+        return kvals_list, Abins_list
+
+    def calculate_mean_slope(self, E, K):
+
+        # E = tf.constant(E, dtype=tf.float32)
+        # K = tf.constant(k, dtype=tf.float32)
+
+        # E_proportional_to_k = tf.pow(k, -5/3)
+        ans=[]
+        
+        for i in range(len(E)):
+          ans.append((-5/3)*(E[i]/K[i])) 
+
+        # dE_dk = tf.gradients(E, k)[0]
+
+        # with tf.Session() as sess:
+        #     dE_dk_value = sess.run(dE_dk)
+
+        return np.array(ans)
+
+
+
     def pretrain(self, r, data_path, model_path=None, batch_size=100):
         '''
             This method trains the generator without using a disctiminator/adversarial training. 
@@ -81,7 +176,6 @@ class PhIREGANs:
         
         self.set_LR_data_shape(data_path)
         h, w, C = self.LR_data_shape
-
         print('Initializing network ...', end=' ')
         x_LR = tf.placeholder(tf.float32, [None, h,             w,            C])
         x_HR = tf.placeholder(tf.float32, [None, h*np.prod(r),  w*np.prod(r), C])
@@ -89,6 +183,7 @@ class PhIREGANs:
         model = SR_NETWORK(x_LR, x_HR, r=r, status='pretraining')
 
         optimizer = tf.train.AdamOptimizer(learning_rate=self.learning_rate)
+        # print(type(model.g_loss))
         g_train_op = optimizer.minimize(model.g_loss, var_list= model.g_variables)
         init = tf.global_variables_initializer()
 
@@ -127,15 +222,36 @@ class PhIREGANs:
                     epoch_loss, N = 0, 0
                     while True:
                         batch_idx, batch_LR, batch_HR = sess.run([idx, LR_out, HR_out])
+                        # print(batch_LR.shape)
+                        model.HR_numpy = batch_HR
                         N_batch = batch_LR.shape[0]
                         feed_dict = {x_HR:batch_HR, x_LR:batch_LR}
+                        
+                        min_val = np.min(batch_HR)
+                        max_val = np.max(batch_HR)
+                        K_HR, E_HR = self.energy_spectrum(batch_HR, min_val, max_val)
+                        # print("vij", K_HR)
+                        de_dk_HR = self.calculate_mean_slope(E_HR, K_HR)
 
-                        # Training step of the generator
-                        sess.run(g_train_op, feed_dict=feed_dict)
+                        feed_dict_1 = {x_LR:batch_LR}
+                        batch_SR = sess.run(model.x_SR, feed_dict=feed_dict_1)
+                        min_val = np.min(batch_SR)
+                        max_val = np.max(batch_SR)
+                        K_SR, E_SR = self.energy_spectrum(batch_SR, min_val, max_val)
+                        de_dk_SR = self.calculate_mean_slope(E_SR, K_SR)
+
+                        kolmogorov_loss = np.mean((de_dk_SR-de_dk_HR)**2)
 
                         # Calculate current losses
                         gl = sess.run(model.g_loss, feed_dict={x_HR: batch_HR, x_LR: batch_LR})
 
+                        # Training step of the generator
+                        sess.run(g_train_op, feed_dict={model.g_loss: gl+(0.1*kolmogorov_loss), x_HR: batch_HR, x_LR: batch_LR})
+                        # sess.run(g_train_op, feed_dict=feed_dict)
+
+                        # # Calculate current losses
+                        # gl = sess.run(model.g_loss, feed_dict={x_HR: batch_HR, x_LR: batch_LR})
+                        # print("\n gl type: ",type(gl))
                         epoch_loss += gl*N_batch
                         N += N_batch
 
@@ -254,13 +370,27 @@ class PhIREGANs:
                         sess.run(d_train_op, feed_dict=feed_dict)
                         sess.run(g_train_op, feed_dict=feed_dict)
 
+                        min_val = np.min(batch_HR)
+                        max_val = np.max(batch_HR)
+                        K_HR, E_HR = self.energy_spectrum(batch_HR, min_val, max_val)
+                        de_dk_HR = self.calculate_mean_slope(E_HR, K_HR)
+
                         # Calculate current losses
                         gl, dl, p = sess.run([model.g_loss, model.d_loss, model.advers_perf], feed_dict=feed_dict)
 
                         gen_count = 1
                         while (dl < 0.460) and gen_count < 2:#30:
                             # Discriminator did too well -> train the generator extra
-                            sess.run(g_train_op, feed_dict=feed_dict)
+                            feed_dict_1 = {x_LR:batch_LR}
+                            batch_SR = sess.run(model.x_SR, feed_dict=feed_dict_1)
+                            min_val = np.min(batch_SR)
+                            max_val = np.max(batch_SR)
+                            K_SR, E_SR = self.energy_spectrum(batch_SR, min_val, max_val)
+                            de_dk_SR = self.calculate_mean_slope(E_SR, K_SR)
+                            kolmogorov_loss = np.mean((de_dk_SR-de_dk_HR)**2)
+
+                            sess.run(g_train_op, feed_dict={model.g_loss: gl+(0.1*kolmogorov_loss), x_HR: batch_HR, x_LR: batch_LR})
+                            # sess.run(g_train_op, feed_dict=feed_dict)
                             gl, dl, p = sess.run([model.g_loss, model.d_loss, model.advers_perf], feed_dict=feed_dict)
                             gen_count += 1
 
@@ -328,7 +458,7 @@ class PhIREGANs:
                 batch_size - (int) number of images to grab per batch. decrease if running out of memory
                 plot_data  - (bool) flag for whether or not to plot LR and SR images
         '''
-
+        plot_data = True
         tf.reset_default_graph()
         
         assert self.mu_sig is not None, 'Value for mu_sig must be set first.'
