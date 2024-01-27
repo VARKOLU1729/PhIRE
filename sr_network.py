@@ -1,11 +1,13 @@
 ''' @author: Andrew Glaws, Karen Stengel, Ryan King
 '''
 import tensorflow as tf
+import matplotlib.pyplot as plt
 from utils import *
-
+  
 class SR_NETWORK(object):
     def __init__(self, x_LR=None, x_HR=None, r=None, status='pretraining', alpha_advers=0.001):
-
+        self.HR_numpy = None
+        print("\n sr network called")
         status = status.lower()
         if status not in ['pretraining', 'training', 'testing']:
             print('Error in network status.')
@@ -21,9 +23,8 @@ class SR_NETWORK(object):
             self.x_SR = self.generator(self.x_LR, r=r, is_training=True)
         else:
             self.x_SR = self.generator(self.x_LR, r=r, is_training=False)
-
         self.g_variables = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
-
+        print("g_var", self.g_variables)
         if status == 'pretraining':
             self.g_loss = self.compute_losses(self.x_HR, self.x_SR, None, None, alpha_advers, isGAN=False)
 
@@ -151,10 +152,105 @@ class SR_NETWORK(object):
 
         return x
 
+
+    def rescale_linear(self, tensor):
+        minimum, maximum = tf.reduce_min(tensor), tf.reduce_max(tensor)
+        m = (1 - 0) / (maximum - minimum)
+        b = 0 - m * minimum
+        return m * tensor + b
+
+    
+
+    def energy_spectrum(self, tensor):
+        tensor = self.rescale_linear(tensor)
+
+        npix = tensor.shape[0]
+        fourier_tensor = tf.spectral.fft2d(tf.cast(tensor, dtype=tf.complex64))
+        shifted_fourier_tensor = self.fftshift(fourier_tensor)
+        fourier_amplitudes = tf.abs(shifted_fourier_tensor)**2
+
+        kfreq = self.fftfreq(npix) * npix
+        kfreq2D = tf.meshgrid(kfreq, kfreq)
+        knrm = tf.sqrt(kfreq2D[0]**2 + kfreq2D[1]**2)
+
+        knrm = tf.reshape(knrm, [-1])
+        fourier_amplitudes = tf.reshape(fourier_amplitudes, [-1])
+
+        kbins = tf.range(0.5, npix//2+1, 1., dtype=tf.float32)
+        kvals = (kbins[1:] + kbins[:-1])
+
+        Abins, _, _ = tf.raw_ops.BinnedStatistic(
+            values=fourier_amplitudes, 
+            sample=knrm, 
+            bin_edges=kbins, 
+            statistic="Mean"
+        )
+        Abins *= tf.constant(np.pi, dtype=tf.float32) * (kbins[1:]**2 - kbins[:-1]**2)
+
+        return kvals, Abins
+
+    
+
+    def fftshift(self, tensor):
+    # Shift the zero-frequency components to the center
+      shift1 = tf.roll(tensor, shift=tf.shape(tensor)[0]//2, axis=0)
+      shift2 = tf.roll(shift1, shift=tf.shape(tensor)[1]//2, axis=1)
+      return shift2
+
+    
+    def fftfreq(self, npix):
+      val = 1.0 / tf.cast(npix, dtype=tf.float32)
+      res = tf.range(0.0, tf.cast(npix // 2, dtype=tf.float32), dtype=tf.float32)
+      return tf.concat([res, res - tf.cast(npix, dtype=tf.float32)]) * val
+
+
+
+ 
+
+
+    def calculate_mean_slope(self, E, k):
+
+        E = tf.constant(E, dtype=tf.float32)
+        k = tf.constant(k, dtype=tf.float32)
+
+        E_proportional_to_k = tf.pow(k, -5/3)
+        dE_dk = tf.gradients(E_proportional_to_k, k)[0]
+
+        with tf.Session() as sess:
+            dE_dk_value = sess.run(dE_dk)
+
+        return np.mean(dE_dk_value)
+
+
+
     def compute_losses(self, x_HR, x_SR, d_HR, d_SR, alpha_advers=0.001, isGAN=False):
         
         content_loss = tf.reduce_mean((x_HR - x_SR)**2, axis=[1, 2, 3])
 
+
+        # k_HR, E_HR = self.energy_spectrum(x_HR)
+        # k_SR, E_SR = self.energy_spectrum(x_SR)
+
+        # mean_slope_HR = self.calculate_mean_slope(E_HR,k_HR)
+        # mean_slope_SR = self.calculate_mean_slope(E_SR,k_SR)
+
+        # alpha_spectrum_wind = 0.001
+        # loss_spectrum_wind = (mean_slope_SR - mean_slope_HR)**2
+
+        # result = tf.reduce_sum(x_HR)
+
+        # # Calculate gradients with respect to 'your_tensor'
+        # gradients = tf.gradients(result, x_HR)[0]  # [0] is used to extract the single element from the list
+
+        # # Start a TensorFlow session (not needed for eager execution in TF 1.x)
+        # with tf.() as sess:
+        #     # Initialize variables if needed (not needed for eager execution)
+        #     sess.run(tf.global_variables_initializer())
+
+        #     # Evaluate the tensor and gradients
+        #     tensor_value, gradients_value = sess.run([x_HR, gradients])
+        #     print("\nTensorvalue:",tensor_value)
+        
         if isGAN:
             g_advers_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_SR, labels=tf.ones_like(d_SR))
 
@@ -166,10 +262,12 @@ class SR_NETWORK(object):
                            tf.reduce_mean(tf.cast(tf.sigmoid(d_SR) > 0.5, tf.float32)), # % false positive
                            tf.reduce_mean(tf.cast(tf.sigmoid(d_HR) < 0.5, tf.float32))] # % false negative
 
-            g_loss = tf.reduce_mean(content_loss) + alpha_advers*tf.reduce_mean(g_advers_loss)
+            g_loss = tf.reduce_mean(content_loss) + alpha_advers*tf.reduce_mean(g_advers_loss) # +alpha_spectrum_wind*loss_spectrum_wind
             d_loss = tf.reduce_mean(d_advers_loss)
 
             return g_loss, d_loss, advers_perf, content_loss, g_advers_loss
         else:
+            print("\n 7 check")
             return tf.reduce_mean(content_loss)
     
+
