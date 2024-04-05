@@ -60,43 +60,6 @@ class PhIREGANs:
         self.model_name    = '/'.join(['models', self.run_id])
         self.data_out_path = '/'.join(['data_out', self.run_id])
 
-    # def rescale_linear(array, new_min, new_max):
-    #     """Rescale an arrary linearly."""
-    #     minimum, maximum = np.min(array), np.max(array)
-    #     m = (new_max - new_min) / (maximum - minimum)
-    #     b = new_min - m * minimum
-    #     return m * array + b
-
-    # def energy_spectrum(img_path, min, max):
-    #     img = Image.open(img_path).convert('L')
-    #     img.save('greyscale.png')
-    #     image = mpimg.imread("greyscale.png")
-    #     image = rescale_linear(image, min, max)
-
-    #     npix = image.shape[0]
-    #     fourier_image = np.fft.fftn(image)
-    #     fourier_amplitudes = np.abs(fourier_image)**2
-    #     fourier_amplitudes = np.fft.fftshift(fourier_amplitudes)
-
-    #     kfreq = np.fft.fftfreq(npix) * npix
-    #     kfreq2D = np.meshgrid(kfreq, kfreq)
-    #     knrm = np.sqrt(kfreq2D[0]**2 + kfreq2D[1]**2)
-
-    #     knrm = knrm.flatten()
-    #     fourier_amplitudes = fourier_amplitudes.flatten()
-
-
-    #     kbins = np.arange(0.5, npix//2+1, 1.)
-    #     kvals = (kbins[1:] + kbins[:-1])
-    #     Abins, _, _ = stats.binned_statistic(knrm, fourier_amplitudes,
-    #                                         statistic = "mean",
-    #                                         bins = kbins)
-    #     Abins *= np.pi * (kbins[1:]**2 - kbins[:-1]**2)
-
-    #     return kvals, Abins
-
-
-
     def rescale_linear(self, tensor, min_val, max_val):
       return (tensor - min_val) / (max_val - min_val) * 255.0
 
@@ -108,7 +71,7 @@ class PhIREGANs:
         # Considering each channel separately
         kvals_list = []
         Abins_list = []
-
+        dA_dk_list = []
         for channel in range(image.shape[-1]):
             fourier_image = np.fft.fftn(image[0, :, :, channel])
             fourier_amplitudes = np.abs(fourier_image)**2
@@ -130,8 +93,13 @@ class PhIREGANs:
 
             kvals_list.append(kvals)
             Abins_list.append(Abins)
-
-        return kvals_list, Abins_list
+            
+            dA_dk = np.diff(Abins)/np.diff(kvals)
+            dA_dk = np.append(dA_dk, 1)
+            dA_dk_list.append(dA_dk)
+        print(len(kvals_list[0]))
+        print(len(dA_dk_list[0]))
+        return kvals_list, Abins_list, dA_dk_list
 
     def calculate_mean_slope(self, E, K):
 
@@ -222,14 +190,15 @@ class PhIREGANs:
                     epoch_loss, N = 0, 0
                     while True:
                         batch_idx, batch_LR, batch_HR = sess.run([idx, LR_out, HR_out])
-                        # print(batch_LR.shape)
+                        print("hr shape is ")
+                        print(batch_idx, batch_HR.shape)
                         model.HR_numpy = batch_HR
                         N_batch = batch_LR.shape[0]
                         feed_dict = {x_HR:batch_HR, x_LR:batch_LR}
                         
                         min_val = np.min(batch_HR)
                         max_val = np.max(batch_HR)
-                        K_HR, E_HR = self.energy_spectrum(batch_HR, min_val, max_val)
+                        K_HR, E_HR, _ = self.energy_spectrum(batch_HR, min_val, max_val)
                         # print("vij", K_HR)
                         de_dk_HR = self.calculate_mean_slope(E_HR, K_HR)
 
@@ -237,8 +206,8 @@ class PhIREGANs:
                         batch_SR = sess.run(model.x_SR, feed_dict=feed_dict_1)
                         min_val = np.min(batch_SR)
                         max_val = np.max(batch_SR)
-                        K_SR, E_SR = self.energy_spectrum(batch_SR, min_val, max_val)
-                        de_dk_SR = self.calculate_mean_slope(E_SR, K_SR)
+                        K_SR, E_SR, de_dk_SR = self.energy_spectrum(batch_SR, min_val, max_val)
+                        # de_dk_SR = self.calculate_mean_slope(E_SR, K_SR)
 
                         kolmogorov_loss = np.mean((de_dk_SR-de_dk_HR)**2)
 
@@ -372,7 +341,7 @@ class PhIREGANs:
 
                         min_val = np.min(batch_HR)
                         max_val = np.max(batch_HR)
-                        K_HR, E_HR = self.energy_spectrum(batch_HR, min_val, max_val)
+                        K_HR, E_HR, _ = self.energy_spectrum(batch_HR, min_val, max_val)
                         de_dk_HR = self.calculate_mean_slope(E_HR, K_HR)
 
                         # Calculate current losses
@@ -385,8 +354,8 @@ class PhIREGANs:
                             batch_SR = sess.run(model.x_SR, feed_dict=feed_dict_1)
                             min_val = np.min(batch_SR)
                             max_val = np.max(batch_SR)
-                            K_SR, E_SR = self.energy_spectrum(batch_SR, min_val, max_val)
-                            de_dk_SR = self.calculate_mean_slope(E_SR, K_SR)
+                            K_SR, E_SR, de_dk_SR = self.energy_spectrum(batch_SR, min_val, max_val)
+                            # de_dk_SR = self.calculate_mean_slope(E_SR, K_SR)
                             kolmogorov_loss = np.mean((de_dk_SR-de_dk_HR)**2)
 
                             sess.run(g_train_op, feed_dict={model.g_loss: gl+(0.1*kolmogorov_loss), x_HR: batch_HR, x_LR: batch_LR})
