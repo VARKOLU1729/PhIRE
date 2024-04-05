@@ -226,30 +226,16 @@ class SR_NETWORK(object):
     def compute_losses(self, x_HR, x_SR, d_HR, d_SR, alpha_advers=0.001, isGAN=False):
         
         content_loss = tf.reduce_mean((x_HR - x_SR)**2, axis=[1, 2, 3])
-
-
-        # k_HR, E_HR = self.energy_spectrum(x_HR)
-        # k_SR, E_SR = self.energy_spectrum(x_SR)
-
-        # mean_slope_HR = self.calculate_mean_slope(E_HR,k_HR)
-        # mean_slope_SR = self.calculate_mean_slope(E_SR,k_SR)
-
-        # alpha_spectrum_wind = 0.001
-        # loss_spectrum_wind = (mean_slope_SR - mean_slope_HR)**2
-
-        # result = tf.reduce_sum(x_HR)
-
-        # # Calculate gradients with respect to 'your_tensor'
-        # gradients = tf.gradients(result, x_HR)[0]  # [0] is used to extract the single element from the list
-
-        # # Start a TensorFlow session (not needed for eager execution in TF 1.x)
-        # with tf.() as sess:
-        #     # Initialize variables if needed (not needed for eager execution)
-        #     sess.run(tf.global_variables_initializer())
-
-        #     # Evaluate the tensor and gradients
-        #     tensor_value, gradients_value = sess.run([x_HR, gradients])
-        #     print("\nTensorvalue:",tensor_value)
+       
+        # print("content loss ", type(content_loss))
+        # print("x_HR", type(x_HR), x_HR.shape, x_HR)
+        # with tf.Session() as sess:
+        #   print(x_HR.eval())
+        # tf.reset_default_graph()
+        # x_in = tf.placeholder(tf.float32, [None, 500, 500, 2])
+        # with tf.Session() as sess:
+        #   x_np = sess.run(x_in, feed_dict={x_in: x_HR})
+        # print(type(x_np))
         
         if isGAN:
             g_advers_loss = tf.nn.sigmoid_cross_entropy_with_logits(logits=d_SR, labels=tf.ones_like(d_SR))
